@@ -24,6 +24,8 @@ fieldnames = ['rmse', 'mae', 'delta1', 'absrel',
 best_fieldnames = ['best_epoch'] + fieldnames
 best_result = Result()
 best_result.set_to_worst()
+train_csv = ''
+test_csv = 'test_result.csv'
 
 
 def main():
