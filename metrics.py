@@ -1,10 +1,13 @@
-import torch
 import math
+
 import numpy as np
+import torch
+
 
 def log10(x):
-      """Convert a new tensor with the base-10 logarithm of the elements of x. """
-      return torch.log(x) / math.log(10)
+    """Convert a new tensor with the base-10 logarithm of the elements of x. """
+    return torch.log(x) / math.log(10)
+
 
 class Result(object):
     def __init__(self):
@@ -21,7 +24,9 @@ class Result(object):
         self.delta1, self.delta2, self.delta3 = 0, 0, 0
         self.data_time, self.gpu_time = 0, 0
 
-    def update(self, irmse, imae, mse, rmse, mae, absrel, lg10, delta1, delta2, delta3, gpu_time, data_time):
+    def update(
+            self, irmse, imae, mse, rmse, mae, absrel, lg10, delta1, delta2,
+            delta3, gpu_time, data_time):
         self.irmse, self.imae = irmse, imae
         self.mse, self.rmse, self.mae = mse, rmse, mae
         self.absrel, self.lg10 = absrel, lg10
@@ -29,7 +34,7 @@ class Result(object):
         self.data_time, self.gpu_time = data_time, gpu_time
 
     def evaluate(self, output, target):
-        valid_mask = ((target>0) + (output>0)) > 0
+        valid_mask = ((target > 0) + (output > 0)) > 0
 
         output = 1e3 * output[valid_mask]
         target = 1e3 * target[valid_mask]
