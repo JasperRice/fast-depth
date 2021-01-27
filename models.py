@@ -1,11 +1,14 @@
-import os
-import torch
-import torch.nn as nn
-import torchvision.models
 import collections
 import math
+import os
+
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models
+
 import imagenet.mobilenet
+
 
 class Identity(nn.Module):
     # a dummy identity module
@@ -14,6 +17,7 @@ class Identity(nn.Module):
 
     def forward(self, x):
         return x
+
 
 class Unpool(nn.Module):
     # Unpool: 2*2 unpooling with zero padding
@@ -24,14 +28,16 @@ class Unpool(nn.Module):
 
         # create kernel [1, 0; 0, 0]
         self.mask = torch.zeros(1, 1, stride, stride)
-        self.mask[:,:,0,0] = 1
+        self.mask[:, :, 0, 0] = 1
 
     def forward(self, x):
         assert x.dim() == 4
         num_channels = x.size(1)
-        return F.conv_transpose2d(x,
-            self.mask.detach().type_as(x).expand(num_channels, 1, -1, -1),
+        return F.conv_transpose2d(
+            x, self.mask.detach().type_as(x).expand(
+                num_channels, 1, -1, -1),
             stride=self.stride, groups=num_channels)
+
 
 def weights_init(m):
     # Initialize kernel weights with Gaussian distributions
@@ -49,30 +55,38 @@ def weights_init(m):
         m.weight.data.fill_(1)
         m.bias.data.zero_()
 
+
 def conv(in_channels, out_channels, kernel_size):
     padding = (kernel_size-1) // 2
-    assert 2*padding == kernel_size-1, "parameters incorrect. kernel={}, padding={}".format(kernel_size, padding)
+    assert 2*padding == kernel_size - \
+        1, "parameters incorrect. kernel={}, padding={}".format(kernel_size, padding)
     return nn.Sequential(
-          nn.Conv2d(in_channels,out_channels,kernel_size,stride=1,padding=padding,bias=False),
-          nn.BatchNorm2d(out_channels),
-          nn.ReLU(inplace=True),
-        )
+        nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride=1, padding=padding,
+            bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True),)
+
 
 def depthwise(in_channels, kernel_size):
     padding = (kernel_size-1) // 2
-    assert 2*padding == kernel_size-1, "parameters incorrect. kernel={}, padding={}".format(kernel_size, padding)
+    assert 2*padding == kernel_size - \
+        1, "parameters incorrect. kernel={}, padding={}".format(kernel_size, padding)
     return nn.Sequential(
-          nn.Conv2d(in_channels,in_channels,kernel_size,stride=1,padding=padding,bias=False,groups=in_channels),
-          nn.BatchNorm2d(in_channels),
-          nn.ReLU(inplace=True),
-        )
+        nn.Conv2d(
+            in_channels, in_channels, kernel_size, stride=1, padding=padding,
+            bias=False, groups=in_channels),
+        nn.BatchNorm2d(in_channels),
+        nn.ReLU(inplace=True),)
+
 
 def pointwise(in_channels, out_channels):
     return nn.Sequential(
-          nn.Conv2d(in_channels,out_channels,1,1,0,bias=False),
-          nn.BatchNorm2d(out_channels),
-          nn.ReLU(inplace=True),
-        )
+        nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True),
+    )
+
 
 def convt(in_channels, out_channels, kernel_size):
     stride = 2
@@ -80,11 +94,12 @@ def convt(in_channels, out_channels, kernel_size):
     output_padding = kernel_size % 2
     assert -2 - 2*padding + kernel_size + output_padding == 0, "deconv parameters incorrect"
     return nn.Sequential(
-            nn.ConvTranspose2d(in_channels,out_channels,kernel_size,
-                stride,padding,output_padding,bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
+        nn.ConvTranspose2d(in_channels, out_channels, kernel_size,
+                           stride, padding, output_padding, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True),
+    )
+
 
 def convt_dw(channels, kernel_size):
     stride = 2
@@ -92,19 +107,22 @@ def convt_dw(channels, kernel_size):
     output_padding = kernel_size % 2
     assert -2 - 2*padding + kernel_size + output_padding == 0, "deconv parameters incorrect"
     return nn.Sequential(
-            nn.ConvTranspose2d(channels,channels,kernel_size,
-                stride,padding,output_padding,bias=False,groups=channels),
-            nn.BatchNorm2d(channels),
-            nn.ReLU(inplace=True),
-        )
+        nn.ConvTranspose2d(
+            channels, channels, kernel_size, stride, padding, output_padding,
+            bias=False, groups=channels),
+        nn.BatchNorm2d(channels),
+        nn.ReLU(inplace=True),)
+
 
 def upconv(in_channels, out_channels):
     return nn.Sequential(
         Unpool(2),
-        nn.Conv2d(in_channels,out_channels,kernel_size=5,stride=1,padding=2,bias=False),
+        nn.Conv2d(
+            in_channels, out_channels, kernel_size=5, stride=1, padding=2,
+            bias=False),
         nn.BatchNorm2d(out_channels),
-        nn.ReLU(),
-    )
+        nn.ReLU(),)
+
 
 class upproj(nn.Module):
     # UpProj module has two branches, with a Unpool at the start and a ReLu at the end
@@ -115,16 +133,20 @@ class upproj(nn.Module):
         super(upproj, self).__init__()
         self.unpool = Unpool(2)
         self.branch1 = nn.Sequential(
-            nn.Conv2d(in_channels,out_channels,kernel_size=5,stride=1,padding=2,bias=False),
+            nn.Conv2d(
+                in_channels, out_channels, kernel_size=5, stride=1, padding=2,
+                bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels,out_channels,kernel_size=3,stride=1,padding=1,bias=False),
-            nn.BatchNorm2d(out_channels),
-        )
+            nn.Conv2d(
+                out_channels, out_channels, kernel_size=3, stride=1, padding=1,
+                bias=False),
+            nn.BatchNorm2d(out_channels),)
         self.branch2 = nn.Sequential(
-            nn.Conv2d(in_channels,out_channels,kernel_size=5,stride=1,padding=2,bias=False),
-            nn.BatchNorm2d(out_channels),
-        )
+            nn.Conv2d(
+                in_channels, out_channels, kernel_size=5, stride=1, padding=2,
+                bias=False),
+            nn.BatchNorm2d(out_channels),)
 
     def forward(self, x):
         x = self.unpool(x)
@@ -132,15 +154,18 @@ class upproj(nn.Module):
         x2 = self.branch2(x)
         return F.relu(x1 + x2)
 
+
 class Decoder(nn.Module):
-    names = ['deconv{}{}'.format(i,dw) for i in range(3,10,2) for dw in ['', 'dw']]
+    names = ['deconv{}{}'.format(i, dw)
+             for i in range(3, 10, 2) for dw in ['', 'dw']]
     names.append("upconv")
     names.append("upproj")
-    for i in range(3,10,2):
+    for i in range(3, 10, 2):
         for dw in ['', 'dw']:
             names.append("nnconv{}{}".format(i, dw))
             names.append("blconv{}{}".format(i, dw))
             names.append("shuffle{}{}".format(i, dw))
+
 
 class DeConv(nn.Module):
 
@@ -200,6 +225,7 @@ class UpConv(nn.Module):
         x = self.convf(x)
         return x
 
+
 class UpProj(nn.Module):
     # UpProj decoder consists of 4 upproj modules with decreasing number of channels and increasing feature map size
 
@@ -220,6 +246,7 @@ class UpProj(nn.Module):
         x = self.upproj5(x)
         x = self.convf(x)
         return x
+
 
 class NNConv(nn.Module):
 
@@ -269,6 +296,7 @@ class NNConv(nn.Module):
         x = self.conv6(x)
         return x
 
+
 class BLConv(NNConv):
 
     def __init__(self, kernel_size, dw):
@@ -276,22 +304,28 @@ class BLConv(NNConv):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
 
         x = self.conv2(x)
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
 
         x = self.conv3(x)
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
 
         x = self.conv4(x)
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
 
         x = self.conv5(x)
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
 
         x = self.conv6(x)
         return x
+
 
 class ShuffleConv(nn.Module):
 
@@ -332,10 +366,11 @@ class ShuffleConv(nn.Module):
         x = F.pixel_shuffle(x, 2)
         return x
 
+
 def choose_decoder(decoder):
     depthwise = ('dw' in decoder)
     if decoder[:6] == 'deconv':
-        assert len(decoder)==7 or (len(decoder)==9 and 'dw' in decoder)
+        assert len(decoder) == 7 or (len(decoder) == 9 and 'dw' in decoder)
         kernel_size = int(decoder[6])
         model = DeConv(kernel_size, depthwise)
     elif decoder == "upproj":
@@ -343,15 +378,15 @@ def choose_decoder(decoder):
     elif decoder == "upconv":
         model = UpConv()
     elif decoder[:7] == 'shuffle':
-        assert len(decoder)==8 or (len(decoder)==10 and 'dw' in decoder)
+        assert len(decoder) == 8 or (len(decoder) == 10 and 'dw' in decoder)
         kernel_size = int(decoder[7])
         model = ShuffleConv(kernel_size, depthwise)
     elif decoder[:6] == 'nnconv':
-        assert len(decoder)==7 or (len(decoder)==9 and 'dw' in decoder)
+        assert len(decoder) == 7 or (len(decoder) == 9 and 'dw' in decoder)
         kernel_size = int(decoder[6])
         model = NNConv(kernel_size, depthwise)
     elif decoder[:6] == 'blconv':
-        assert len(decoder)==7 or (len(decoder)==9 and 'dw' in decoder)
+        assert len(decoder) == 7 or (len(decoder) == 9 and 'dw' in decoder)
         kernel_size = int(decoder[6])
         model = BLConv(kernel_size, depthwise)
     else:
@@ -361,26 +396,31 @@ def choose_decoder(decoder):
 
 
 class ResNet(nn.Module):
-    def __init__(self, layers, decoder, output_size, in_channels=3, pretrained=True):
+    def __init__(self, layers, decoder, output_size, in_channels=3,
+                 pretrained=True):
 
         if layers not in [18, 34, 50, 101, 152]:
-            raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
-        
+            raise RuntimeError(
+                'Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
+
         super(ResNet, self).__init__()
         self.output_size = output_size
-        pretrained_model = torchvision.models.__dict__['resnet{}'.format(layers)](pretrained=pretrained)
+        pretrained_model = torchvision.models.__dict__[
+            'resnet{}'.format(layers)](pretrained=pretrained)
         if not pretrained:
             pretrained_model.apply(weights_init)
-        
+
         if in_channels == 3:
             self.conv1 = pretrained_model._modules['conv1']
             self.bn1 = pretrained_model._modules['bn1']
         else:
-            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3,
+                bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             weights_init(self.conv1)
             weights_init(self.bn1)
-        
+
         self.relu = pretrained_model._modules['relu']
         self.maxpool = pretrained_model._modules['maxpool']
         self.layer1 = pretrained_model._modules['layer1']
@@ -417,6 +457,7 @@ class ResNet(nn.Module):
 
         return x
 
+
 class MobileNet(nn.Module):
     def __init__(self, decoder, output_size, in_channels=3, pretrained=True):
 
@@ -424,21 +465,25 @@ class MobileNet(nn.Module):
         self.output_size = output_size
         mobilenet = imagenet.mobilenet.MobileNet()
         if pretrained:
-            pretrained_path = os.path.join('imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256', 'model_best.pth.tar')
+            pretrained_path = os.path.join(
+                'imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256',
+                'model_best.pth.tar')
             checkpoint = torch.load(pretrained_path)
             state_dict = checkpoint['state_dict']
 
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             for k, v in state_dict.items():
-                name = k[7:] # remove `module.`
+                name = k[7:]  # remove `module.`
                 new_state_dict[name] = v
             mobilenet.load_state_dict(new_state_dict)
         else:
             mobilenet.apply(weights_init)
 
         if in_channels == 3:
-            self.mobilenet = nn.Sequential(*(mobilenet.model[i] for i in range(14)))
+            self.mobilenet = nn.Sequential(*
+                                           (mobilenet.model[i]
+                                            for i in range(14)))
         else:
             def conv_bn(inp, oup, stride):
                 return nn.Sequential(
@@ -449,8 +494,8 @@ class MobileNet(nn.Module):
 
             self.mobilenet = nn.Sequential(
                 conv_bn(in_channels,  32, 2),
-                *(mobilenet.model[i] for i in range(1,14))
-                )
+                *(mobilenet.model[i] for i in range(1, 14))
+            )
 
         self.decoder = choose_decoder(decoder)
 
@@ -459,27 +504,32 @@ class MobileNet(nn.Module):
         x = self.decoder(x)
         return x
 
+
 class ResNetSkipAdd(nn.Module):
     def __init__(self, layers, output_size, in_channels=3, pretrained=True):
 
         if layers not in [18, 34, 50, 101, 152]:
-            raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
-        
+            raise RuntimeError(
+                'Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
+
         super(ResNetSkipAdd, self).__init__()
         self.output_size = output_size
-        pretrained_model = torchvision.models.__dict__['resnet{}'.format(layers)](pretrained=pretrained)
+        pretrained_model = torchvision.models.__dict__[
+            'resnet{}'.format(layers)](pretrained=pretrained)
         if not pretrained:
             pretrained_model.apply(weights_init)
-        
+
         if in_channels == 3:
             self.conv1 = pretrained_model._modules['conv1']
             self.bn1 = pretrained_model._modules['bn1']
         else:
-            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3,
+                bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             weights_init(self.conv1)
             weights_init(self.bn1)
-        
+
         self.relu = pretrained_model._modules['relu']
         self.maxpool = pretrained_model._modules['maxpool']
         self.layer1 = pretrained_model._modules['layer1']
@@ -497,7 +547,7 @@ class ResNetSkipAdd(nn.Module):
             num_channels = 2048
         self.conv2 = nn.Conv2d(num_channels, 1024, 1)
         weights_init(self.conv2)
-        
+
         kernel_size = 5
         self.decode_conv1 = conv(1024, 512, kernel_size)
         self.decode_conv2 = conv(512, 256, kernel_size)
@@ -555,27 +605,32 @@ class ResNetSkipAdd(nn.Module):
 
         return y
 
+
 class ResNetSkipConcat(nn.Module):
     def __init__(self, layers, output_size, in_channels=3, pretrained=True):
 
         if layers not in [18, 34, 50, 101, 152]:
-            raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
-        
+            raise RuntimeError(
+                'Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
+
         super(ResNetSkipConcat, self).__init__()
         self.output_size = output_size
-        pretrained_model = torchvision.models.__dict__['resnet{}'.format(layers)](pretrained=pretrained)
+        pretrained_model = torchvision.models.__dict__[
+            'resnet{}'.format(layers)](pretrained=pretrained)
         if not pretrained:
             pretrained_model.apply(weights_init)
-        
+
         if in_channels == 3:
             self.conv1 = pretrained_model._modules['conv1']
             self.bn1 = pretrained_model._modules['bn1']
         else:
-            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3,
+                bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             weights_init(self.conv1)
             weights_init(self.bn1)
-        
+
         self.relu = pretrained_model._modules['relu']
         self.maxpool = pretrained_model._modules['maxpool']
         self.layer1 = pretrained_model._modules['layer1']
@@ -593,7 +648,7 @@ class ResNetSkipConcat(nn.Module):
             num_channels = 2048
         self.conv2 = nn.Conv2d(num_channels, 1024, 1)
         weights_init(self.conv2)
-        
+
         kernel_size = 5
         self.decode_conv1 = conv(1024, 512, kernel_size)
         self.decode_conv2 = conv(768, 256, kernel_size)
@@ -651,6 +706,7 @@ class ResNetSkipConcat(nn.Module):
 
         return y
 
+
 class MobileNetSkipAdd(nn.Module):
     def __init__(self, output_size, pretrained=True):
 
@@ -658,21 +714,23 @@ class MobileNetSkipAdd(nn.Module):
         self.output_size = output_size
         mobilenet = imagenet.mobilenet.MobileNet()
         if pretrained:
-            pretrained_path = os.path.join('imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256', 'model_best.pth.tar')
+            pretrained_path = os.path.join(
+                'imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256',
+                'model_best.pth.tar')
             checkpoint = torch.load(pretrained_path)
             state_dict = checkpoint['state_dict']
 
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             for k, v in state_dict.items():
-                name = k[7:] # remove `module.`
+                name = k[7:]  # remove `module.`
                 new_state_dict[name] = v
             mobilenet.load_state_dict(new_state_dict)
         else:
             mobilenet.apply(weights_init)
 
         for i in range(14):
-            setattr( self, 'conv{}'.format(i), mobilenet.model[i])
+            setattr(self, 'conv{}'.format(i), mobilenet.model[i])
 
         kernel_size = 5
         # self.decode_conv1 = conv(1024, 512, kernel_size)
@@ -711,25 +769,26 @@ class MobileNetSkipAdd(nn.Module):
             layer = getattr(self, 'conv{}'.format(i))
             x = layer(x)
             # print("{}: {}".format(i, x.size()))
-            if i==1:
+            if i == 1:
                 x1 = x
-            elif i==3:
+            elif i == 3:
                 x2 = x
-            elif i==5:
+            elif i == 5:
                 x3 = x
-        for i in range(1,6):
+        for i in range(1, 6):
             layer = getattr(self, 'decode_conv{}'.format(i))
             x = layer(x)
             x = F.interpolate(x, scale_factor=2, mode='nearest')
-            if i==4:
+            if i == 4:
                 x = x + x1
-            elif i==3:
+            elif i == 3:
                 x = x + x2
-            elif i==2:
+            elif i == 2:
                 x = x + x3
             # print("{}: {}".format(i, x.size()))
         x = self.decode_conv6(x)
         return x
+
 
 class MobileNetSkipConcat(nn.Module):
     def __init__(self, output_size, pretrained=True):
@@ -738,21 +797,23 @@ class MobileNetSkipConcat(nn.Module):
         self.output_size = output_size
         mobilenet = imagenet.mobilenet.MobileNet()
         if pretrained:
-            pretrained_path = os.path.join('imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256', 'model_best.pth.tar')
+            pretrained_path = os.path.join(
+                'imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256',
+                'model_best.pth.tar')
             checkpoint = torch.load(pretrained_path)
             state_dict = checkpoint['state_dict']
 
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             for k, v in state_dict.items():
-                name = k[7:] # remove `module.`
+                name = k[7:]  # remove `module.`
                 new_state_dict[name] = v
             mobilenet.load_state_dict(new_state_dict)
         else:
             mobilenet.apply(weights_init)
 
         for i in range(14):
-            setattr( self, 'conv{}'.format(i), mobilenet.model[i])
+            setattr(self, 'conv{}'.format(i), mobilenet.model[i])
 
         kernel_size = 5
         # self.decode_conv1 = conv(1024, 512, kernel_size)
@@ -791,23 +852,23 @@ class MobileNetSkipConcat(nn.Module):
             layer = getattr(self, 'conv{}'.format(i))
             x = layer(x)
             # print("{}: {}".format(i, x.size()))
-            if i==1:
+            if i == 1:
                 x1 = x
-            elif i==3:
+            elif i == 3:
                 x2 = x
-            elif i==5:
+            elif i == 5:
                 x3 = x
-        for i in range(1,6):
+        for i in range(1, 6):
             layer = getattr(self, 'decode_conv{}'.format(i))
             # print("{}a: {}".format(i, x.size()))
             x = layer(x)
             # print("{}b: {}".format(i, x.size()))
             x = F.interpolate(x, scale_factor=2, mode='nearest')
-            if i==4:
+            if i == 4:
                 x = torch.cat((x, x1), 1)
-            elif i==3:
+            elif i == 3:
                 x = torch.cat((x, x2), 1)
-            elif i==2:
+            elif i == 2:
                 x = torch.cat((x, x3), 1)
             # print("{}c: {}".format(i, x.size()))
         x = self.decode_conv6(x)
