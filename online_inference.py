@@ -40,7 +40,8 @@ if __name__ == '__main__':
             pred = model(rgb)
         gpu_time = time.time() - end
 
-        heat = cv2.applyColorMap(pred.data, cv2.COLORMAP_JET)
+        depth = np.squeeze(pred.data.cpu().numpy())
+        heat = cv2.applyColorMap(depth, cv2.COLORMAP_JET)
         bgr = cv2.addWeighted(heat, alpha, bgr, 1-alpha, 0)
 
         cv2.imshow('Depth', bgr)
