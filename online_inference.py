@@ -6,9 +6,9 @@ import torch
 
 if __name__ == '__main__':
     alpha = 0.3
-    output_directory = 'results/'
+    output_directory = 'weights/'
     checkpoint = torch.load(
-        'results/mobilenet-nnconv5dw-skipadd-pruned.pth.tar')
+        'weights/mobilenet-nnconv5dw-skipadd-pruned.pth.tar')
     if isinstance(checkpoint, dict):
         start_epoch = checkpoint['epoch']
         best_result = checkpoint['best_result']
